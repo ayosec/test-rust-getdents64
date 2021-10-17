@@ -1,0 +1,10 @@
+[package]
+name = "test-getdents64"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+debug = true
