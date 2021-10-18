@@ -1,0 +1,19 @@
+kprobe:__x64_sys_getdents64
+{
+  @start[tid] = nsecs;
+}
+
+kretprobe:__x64_sys_getdents64 /@start[tid]/
+{
+  $elapsed = nsecs - @start[tid];
+  delete(@start[tid]);
+
+  @duration += $elapsed;
+  @calls = count();
+
+  if(retval == 0) {
+    @retval_0 = count();
+  } else {
+    @retval_not_0 = count();
+  }
+}
