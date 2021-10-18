@@ -1,0 +1,122 @@
+#!/usr/bin/env ruby
+#
+# Execute the test-getdents64 binary against directories with multiple sizes.
+#
+# For every directory size, the output is compared against `ls -1UA`.
+#
+# Prints to stdout a table with a summary.
+
+require "securerandom"
+require "tmpdir"
+
+TARGET_DIR = ARGV.shift || Dir.mktmpdir
+
+BIN_PATH = File.expand_path("../../target/release/test-getdents64", __FILE__)
+
+FILE_COUNTS = [ 0, 16, 256, 4 * 1024, 10_000, 1_000_000, 2_000_000 ]
+
+BENCH_DURATION = 10
+
+if not File.exist?(BIN_PATH)
+  STDERR.puts "Missing #{BIN_PATH}"
+  exit 1
+end
+
+puts "| N. Files | ┊ | `std` | Avg. | Max. | Min. | ┊ | syscall | Avg. | Max. | Min. | ┊ | `std` / syscall |"
+puts "|-:|-|--|-:|-:|-:|-|--|-:|-:|-:|-|-:|"
+
+def main
+  last_file_count = Dir["#{TARGET_DIR}/*"].size
+
+  FILE_COUNTS.each do |file_count|
+    if last_file_count < file_count
+      # Create new files with random names.
+      STDERR.puts "Creating #{file_count - last_file_count} files in #{TARGET_DIR} ..."
+
+      Dir.chdir TARGET_DIR do
+        while last_file_count < file_count
+          begin
+            File
+              .open(SecureRandom.urlsafe_base64(rand(8..16)), "wx")
+              .close
+          rescue Errno::EEXIST
+            retry
+          end
+
+          last_file_count += 1
+        end
+      end
+    end
+
+    verify_output()
+
+    print "| #{ last_file_count } "
+
+    avgs = []
+
+    [ true, false ].each do |with_std|
+      print " | ┊ | "
+      results = run_test(with_std)
+
+      %w(AVG MAX MIN).each do |key|
+        time = results[key]
+        print "| #{show_time(time)} <!-- #{ time } -->"
+      end
+
+      avgs << results["AVG"]
+    end
+
+    diff = avgs[0] / avgs[1]
+    puts " | ┊ | %.2f |" % diff
+  end
+end
+
+# The output of the program (with std and raw syscalls) should be
+# identical to `ls -1UA`.
+def verify_output()
+  STDERR.print "Checking output "
+  expected = IO.popen(%W(ls -1UA #{TARGET_DIR})) {|c| c.read }
+
+  [ true, false ].each do |with_std|
+    cmd = [ BIN_PATH, "-p" ]
+    cmd << "-s" if with_std
+    cmd << TARGET_DIR
+
+    output = IO.popen(%W(ls -1UA #{TARGET_DIR})) {|c| c.read }
+    if expected != output
+      STDERR.puts " [failed] #{cmd * " "}"
+      exit 1
+    end
+
+    STDERR.print "."
+  end
+
+  STDERR.puts " OK"
+end
+
+# Execute the binary, and returns a map with the stats computed
+# by the program.
+def run_test(with_std)
+  cmd = %W(#{BIN_PATH} -d #{BENCH_DURATION})
+  cmd << "-s" if with_std
+  cmd << TARGET_DIR
+
+  IO
+    .popen(cmd, err: %i(child out)) {|c| c.read }
+    .scan(/(\w+): (\S+) ms/)
+    .each_with_object({}) {|item, map| map[item[0]] = item[1].to_f }
+end
+
+# Returns a time (in milliseconds) in an easy-to-read representation.
+def show_time(time)
+  if time < 0.001
+    "%d ns" % (time * 1_000_000)
+  elsif time < 1
+    "%d μs" % (time * 1_000)
+  else
+    "%.2f ms" % time
+  end
+end
+
+
+main
