@@ -4,8 +4,9 @@
 #
 # For every directory size, the output is compared against `ls -1UA`.
 #
-# Prints to stdout a table with a summary.
+# Prints to stdout JSON lines for the render-results script.
 
+require "json"
 require "securerandom"
 require "tmpdir"
 
@@ -21,9 +22,6 @@ if not File.exist?(BIN_PATH)
   STDERR.puts "Missing #{BIN_PATH}"
   exit 1
 end
-
-puts "| N. Files | ┊ | `std` | Avg. | Max. | Min. | ┊ | syscall | Avg. | Max. | Min. | ┊ | `std` / syscall |"
-puts "|-:|-|--|-:|-:|-:|-|--|-:|-:|-:|-|-:|"
 
 def main
   last_file_count = Dir["#{TARGET_DIR}/*"].size
@@ -50,24 +48,12 @@ def main
 
     verify_output()
 
-    print "| #{ last_file_count } "
-
-    avgs = []
-
-    [ true, false ].each do |with_std|
-      print " | ┊ | "
-      results = run_test(with_std)
-
-      %w(AVG MAX MIN).each do |key|
-        time = results[key]
-        print "| #{show_time(time)} <!-- #{ time } -->"
-      end
-
-      avgs << results["AVG"]
+    item = { no_files: last_file_count }
+    %i(std syscall).each do |conf|
+      item[conf] = run_test(conf == :std)
     end
 
-    diff = avgs[0] / avgs[1]
-    puts " | ┊ | %.2f |" % diff
+    puts item.to_json
   end
 end
 
@@ -104,19 +90,7 @@ def run_test(with_std)
   IO
     .popen(cmd, err: %i(child out)) {|c| c.read }
     .scan(/(\w+): (\S+) ms/)
-    .each_with_object({}) {|item, map| map[item[0]] = item[1].to_f }
+    .each_with_object({}) {|item, map| map[item[0]] = item[1] }
 end
-
-# Returns a time (in milliseconds) in an easy-to-read representation.
-def show_time(time)
-  if time < 0.001
-    "%d ns" % (time * 1_000_000)
-  elsif time < 1
-    "%d μs" % (time * 1_000)
-  else
-    "%.2f ms" % time
-  end
-end
-
 
 main

@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+#
+# Renders the results from the run script as a Markdown table.
+
+require "json"
+
+# Returns a time (in milliseconds) in an easy-to-read representation.
+def show_time(time)
+  if time < 0.001
+    "%d ns" % (time * 1_000_000)
+  elsif time < 1
+    "%d μs" % (time * 1_000)
+  elsif time > 100
+    "%d ms" % time
+  else
+    "%.2f ms" % time
+  end
+end
+
+
+puts "| N. Files | ┊ | `std` | Avg. | Max. | Min. | ┊ | syscall | Avg. | Max. | Min. | ┊ | `std` / syscall |"
+puts "|-:|-|--|-:|-:|-:|-|--|-:|-:|-:|-|-:|"
+
+ARGF.each_line do |line|
+  item = JSON.parse(line)
+  print "| #{ item["no_files"] } "
+
+  avgs = []
+
+  %w(std syscall).each do |conf|
+    print " | ┊ | "
+    results = item[conf]
+
+    %w(AVG MAX MIN).each do |key|
+      time = results[key]
+      print "| #{show_time(time.to_f)} <!-- #{ time } -->"
+    end
+
+    avgs << results["AVG"].to_f
+  end
+
+  diff = avgs[0] / avgs[1]
+  puts " | ┊ | %.2f |" % diff
+end
