@@ -7,38 +7,38 @@ require "json"
 # Returns a time (in milliseconds) in an easy-to-read representation.
 def show_time(time)
   if time < 0.001
-    "%d ns" % (time * 1_000_000)
+    "`%d` ns" % (time * 1_000_000)
   elsif time < 1
-    "%d μs" % (time * 1_000)
+    "`%d` μs" % (time * 1_000)
   elsif time > 100
-    "%d ms" % time
+    "`%d` ms" % time
   else
-    "%.2f ms" % time
+    "`%.2f` ms" % time
   end
 end
 
+ITEMS = ARGF.each_line.map {|l| JSON.parse(l) }
 
-puts "| N. Files | ┊ | `std` | Avg. | Max. | Min. | ┊ | syscall | Avg. | Max. | Min. | ┊ | `std` / syscall |"
-puts "|-:|-|--|-:|-:|-:|-|--|-:|-:|-:|-|-:|"
+%w(AVG MAX MIN).map do |stat_key|
 
-ARGF.each_line do |line|
-  item = JSON.parse(line)
-  print "| #{ item["no_files"] } "
+  puts "**#{stat_key.capitalize}.**"
 
-  avgs = []
+  puts "| N. Files | `std` | `syscall` | `std` / `syscall` |"
+  puts "|-:|-:|-:|-:|"
 
-  %w(std syscall).each do |conf|
-    print " | ┊ | "
-    results = item[conf]
+  ITEMS.each do |item|
+    print "| #{ item["no_files"] } "
 
-    %w(AVG MAX MIN).each do |key|
-      time = results[key]
-      print "| #{show_time(time.to_f)} <!-- #{ time } -->"
+    values = []
+    %w(std syscall).each do |conf|
+      time = item.dig(conf, stat_key).to_f
+      print "| #{show_time(time)} <!-- #{ time } -->"
+
+      values << time
     end
 
-    avgs << results["AVG"].to_f
+    relative = values[0] / values[1]
+    puts " | `%.2f` |" % relative
   end
 
-  diff = avgs[0] / avgs[1]
-  puts " | ┊ | %.2f |" % diff
 end
